@@ -22,7 +22,7 @@ Assets can be downloaded from the course page (not included in the repository).
 
 - Backend for window, sound, input etc: [SDL3](https://github.com/libsdl-org/SDL)
 - OpenGL extension loader: [glew-cmake](https://github.com/Perlmint/glew-cmake)
-- Model loader: [assimp](https://github.com/assimp/assimp) (v5.0.1 200112 - newer versions have [issues](https://github.com/assimp/assimp/issues/4620) with Mixamo models).
+- Model loader: [assimp](https://github.com/assimp/assimp) v6.0.1.
 - User interface: [Dear ImGui](https://github.com/ocornut/imgui)
 - Vector & matrix math: [glm](https://github.com/g-truc/glm)
 - Image loader & writer: [stb](https://github.com/nothings/stb)
