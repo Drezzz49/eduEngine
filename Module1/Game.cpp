@@ -4,6 +4,79 @@
 #include "imgui.h"
 #include "Log.hpp"
 #include "Game.hpp"
+#include "../src/Component.hpp"
+
+
+
+void MovementSystem(entt::registry& reg, float deltaTime) {
+    auto view = reg.view<TransformComponent, LinearVelocityComponent>(); //hittar alla entitys som har transform och velocity
+    for (auto entity : view) {
+        auto& transform = view.get<TransformComponent>(entity); //hämtar transform
+        auto& vel = view.get<LinearVelocityComponent>(entity); //hämtar velocity
+        transform.pos += vel.velocity * deltaTime;
+    }
+}
+
+void PlayerControllerSystem(entt::registry& reg, InputManagerPtr input) {
+    auto view = reg.view<PlayerControllerComponent, LinearVelocityComponent>(); //hittar alla entitys som har playercontroller och velocity
+    for (auto entity : view) {
+        auto& playerCtrl = view.get<PlayerControllerComponent>(entity); //hämtar playercontroller, som bara är en fart
+        auto& vel = view.get<LinearVelocityComponent>(entity); //hämtar velocity
+
+        glm::vec3 moveDir{ 0, 0, 0 }; 
+        //inputs ijkl iställer för wasd
+        if (input->IsKeyPressed(eeng::InputManager::Key::I)) moveDir.z -= 1.0f;
+        if (input->IsKeyPressed(eeng::InputManager::Key::K)) moveDir.z += 1.0f;
+        if (input->IsKeyPressed(eeng::InputManager::Key::J)) moveDir.x -= 1.0f;
+        if (input->IsKeyPressed(eeng::InputManager::Key::L)) moveDir.x += 1.0f;
+
+        vel.velocity = moveDir * playerCtrl.speed;
+    }
+}
+
+void RenderSystem(entt::registry& reg, std::shared_ptr<eeng::ForwardRenderer> renderer) {
+    auto view = reg.view<TransformComponent, MeshComponent>(); //hittar alla entitys med transform och mesh
+    for (auto entity : view) {
+        auto& transform = view.get<TransformComponent>(entity);
+        auto& meshComp = view.get<MeshComponent>(entity);
+
+        if (meshComp.mesh) {
+            // Skapa matrisen baserat på komponentens data
+            glm::mat4 modelMatrix = glm_aux::TRS(transform.pos, transform.rotY, { 0, 1, 0 }, transform.scale);
+            renderer->renderMesh(meshComp.mesh, modelMatrix); //ritar ut 
+        }
+    }
+}
+
+void NPCControllerSystem(entt::registry& reg, float deltaTime) {
+    auto view = reg.view<NPCController, TransformComponent, LinearVelocityComponent>(); //hitta entitys med npccontroller, tarsnform och velocity
+    for (auto entity : view) {
+        auto& npc = view.get<NPCController>(entity);
+        auto& transform = view.get<TransformComponent>(entity);
+        auto& vel = view.get<LinearVelocityComponent>(entity);
+
+        if (npc.waypoints.empty()) continue; //om vi inte har några waypoints
+
+        glm::vec3 target = npc.waypoints[npc.currentWaypointIndex];
+        glm::vec3 toTarget = target - transform.pos;
+
+        if (glm::length(toTarget) < 0.5f) { // Om nära nog, byt waypoint
+            if (npc.currentWaypointIndex <= npc.waypoints.size())
+            {
+                npc.currentWaypointIndex++; //nästa
+            }
+            if (npc.currentWaypointIndex >= npc.waypoints.size())
+            {
+                npc.currentWaypointIndex = 0; //börja om
+            }
+        }
+        else {
+            vel.velocity = glm::normalize(toTarget) * npc.speed;
+        }
+    }
+}
+
+
 
 bool Game::init()
 {
@@ -79,6 +152,42 @@ bool Game::init()
         35.0f, { 0, 1, 0 },
         { 0.01f, 0.01f, 0.01f });
 
+
+
+
+
+
+    auto playerEnt = entity_registry->create();
+    entity_registry->emplace<TransformComponent>(
+        playerEnt,
+        glm::vec3{ 0.0f, 0.0f, 0.0f }, //pos
+        glm::vec3{ 0.01f, 0.01f, 0.01f }, //skala
+        0.0f //rot
+    );
+    entity_registry->emplace<LinearVelocityComponent>(playerEnt);
+    entity_registry->emplace<MeshComponent>(playerEnt, horseMesh);
+    entity_registry->emplace<PlayerControllerComponent>(playerEnt, 5.0f); 
+
+
+    auto npcEnt = entity_registry->create();
+    entity_registry->emplace<TransformComponent>(
+        npcEnt,
+        glm::vec3{ 0.0f, 0.0f, 0.0f }, //pos
+        glm::vec3{ 0.01f, 0.005f, 0.01f }, //skala
+        0.0f //rot
+    );
+    entity_registry->emplace<LinearVelocityComponent>(npcEnt);
+    entity_registry->emplace<MeshComponent>(npcEnt, horseMesh);
+
+    NPCController horseBrain;
+    horseBrain.speed = 10.0f;
+    horseBrain.waypoints.push_back(glm::vec3(0.0f, 0.0f, 0.0f));
+    horseBrain.waypoints.push_back(glm::vec3(10.0f, 0.0f, 0.0f));
+    horseBrain.waypoints.push_back(glm::vec3(10.0f, 0.0f, 10.0f));
+    horseBrain.waypoints.push_back(glm::vec3(0.0f, 0.0f, 10.0f));
+
+    entity_registry->emplace<NPCController>(npcEnt, horseBrain);
+
     return true;
 }
 
@@ -87,6 +196,16 @@ void Game::update(
     float deltaTime,
     InputManagerPtr input)
 {
+
+    //hantera input spelaren
+    PlayerControllerSystem(*entity_registry, input);
+    //hantera npc
+    NPCControllerSystem(*entity_registry, deltaTime);
+    //flytta saker
+    MovementSystem(*entity_registry, deltaTime);
+
+
+
     updateCamera(input);
 
     updatePlayer(deltaTime, input);
@@ -152,6 +271,13 @@ void Game::render(
     matrices.VP = glm_aux::create_viewport_matrix(0.0f, 0.0f, windowWidth, windowHeight, 0.0f, 1.0f);
     // Begin rendering pass
     forwardRenderer->beginPass(matrices.P, matrices.V, pointlight.pos, pointlight.color, camera.pos);
+
+
+
+    // Rendera allt som finns i ECS
+    RenderSystem(*entity_registry, forwardRenderer);
+
+
 
     // Grass
     forwardRenderer->renderMesh(grassMesh, grassWorldMatrix);
@@ -221,7 +347,7 @@ void Game::render(
         shapeRenderer->pop_states<ShapeRendering::Color4u>();
     }
 
-#if 0
+#if 1
     // Demo draw other shapes
     {
         shapeRenderer->push_states(glm_aux::T(glm::vec3(0.0f, 0.0f, -5.0f)));
