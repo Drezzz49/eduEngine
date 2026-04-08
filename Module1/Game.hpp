@@ -39,7 +39,7 @@ public:
 
 private:
     /// @brief For rendering of GUI elements
-    void renderUI();
+    void renderUI(float time);
 
     // Renderer for rendering imported animated or non-animated models
     eeng::ForwardRendererPtr forwardRenderer;

@@ -258,7 +258,7 @@ void Game::render(
     int windowWidth,
     int windowHeight)
 {
-    renderUI();
+    renderUI(time);
 
     matrices.windowSize = glm::ivec2(windowWidth, windowHeight);
 
@@ -361,7 +361,7 @@ void Game::render(
     shapeRenderer->post_render();
 }
 
-void Game::renderUI()
+void Game::renderUI(float time)
 {
     // Begin game info ImGui window
     ImGui::Begin("Game Info");
@@ -419,6 +419,42 @@ void Game::renderUI()
     ImGui::Text("Branch root: mixamorig:Spine");
     ImGui::Checkbox("Spine subtree uses waving", &rightCharacterSubtreeUsesWave);
 
+    //tid
+    ImGui::Separator();
+    ImGui::Text("In-Game Timer: %.2f", time);
+
+    //hastighet för npc
+    ImGui::Separator();
+    auto npcSpeed = entity_registry->view<NPCController>(); //hittar alla entitys med NPCController
+    for (auto entity : npcSpeed)
+    {
+        auto& npc = npcSpeed.get<NPCController>(entity);
+        ImGui::SliderFloat("NPC speed", &npc.speed, 0.0f, 30.0f);
+    }
+
+    //transform för spelaren
+    ImGui::Separator();
+    auto playerView = entity_registry->view<TransformComponent, PlayerControllerComponent>(); //hittar alla entitys med playercontroller och transform
+    for (auto entity : playerView)
+    {
+        auto& transform = playerView.get<TransformComponent>(entity);
+        //ImGui::SliderFloat("Scale X", &transform.scale.x, 0.001f, 0.1f);
+        //ImGui::SliderFloat("Scale Y", &transform.scale.y, 0.001f, 0.1f);
+        //ImGui::SliderFloat("Scale Z", &transform.scale.z, 0.001f, 0.1f);
+
+        ImGui::SliderFloat3("Player scale", glm::value_ptr(transform.scale), 0.001f, 0.1f);
+    }
+
+    //hastigheten för spelaren
+    ImGui::Separator();
+    for (auto entity : playerView)
+    {
+        auto& playerCtrl = playerView.get<PlayerControllerComponent>(entity);
+        ImGui::SliderFloat("Player speed", &playerCtrl.speed, 0.0f, 20.0f);
+    }
+
+
+
     ImGui::End(); // end info window
 
     // In-world position label at horse position
@@ -450,6 +486,7 @@ void Game::renderUI()
         }
         ImGui::PopStyleColor(2);
     }
+
 }
 
 void Game::destroy()
