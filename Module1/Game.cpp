@@ -34,16 +34,75 @@ void PlayerControllerSystem(entt::registry& reg, InputManagerPtr input) {
     }
 }
 
-void RenderSystem(entt::registry& reg, std::shared_ptr<eeng::ForwardRenderer> renderer) {
-    auto view = reg.view<TransformComponent, MeshComponent>(); //hittar alla entitys med transform och mesh
+void RenderSystem(entt::registry& reg, std::shared_ptr<eeng::ForwardRenderer> renderer, std::shared_ptr<ShapeRendering::ShapeRenderer> shapeRenderer, bool drawSkeleton) {
+
+	auto view = reg.view<TransformComponent, MeshComponent>(); //hittar alla entitys som har transform och mesh
     for (auto entity : view) {
-        auto& transform = view.get<TransformComponent>(entity);
-        auto& meshComp = view.get<MeshComponent>(entity);
+		auto& transform = view.get<TransformComponent>(entity); //hämtar transform
+		auto& meshComp = view.get<MeshComponent>(entity); //hämtar mesh
 
         if (meshComp.mesh) {
-            // Skapa matrisen baserat på komponentens data
+			if (reg.all_of<AnimationComponent>(entity)) //om entityn har animation
+            {
+                auto& anim = reg.get<AnimationComponent>(entity);//hämtar animation
+                if (anim.useLayering) 
+                {
+                    eeng::AnimationBranchDesc filter; 
+					filter.root_node_name = anim.layerRoot; //namnet på benet som ska vara root för den animation 2
+					filter.mode = eeng::AnimationBranchDesc::Mode::IncludeSubtree; //alla ben under det benet i animation 2
+
+                    meshComp.mesh->animateBlend(
+                        anim.baseAnimationIndex, 
+                        anim.secondaryAnimationIndex, 
+                        anim.time, 
+                        anim.time, 
+                        filter);
+                }
+                else {
+					//standard blend utan layering
+                    meshComp.mesh->animateBlend(
+                        anim.baseAnimationIndex, 
+                        anim.secondaryAnimationIndex, 
+                        anim.time, 
+                        anim.time, 
+                        anim.blendFactor);
+                }
+            }
+
             glm::mat4 modelMatrix = glm_aux::TRS(transform.pos, transform.rotY, { 0, 1, 0 }, transform.scale);
             renderer->renderMesh(meshComp.mesh, modelMatrix); //ritar ut 
+
+            //gizmo sklett
+            if (drawSkeleton) {
+                float axisLen = 1.0f;
+
+				for (int i = 0; i < meshComp.mesh->boneMatrices.size(); ++i) //characterMesh blir till meshComp.mesh
+                {
+                    auto IBinverse = glm::inverse(meshComp.mesh->m_bones[i].inversebind_tfm);
+                    //characterWorldMatrix3 * characterMesh (från ) blir till modelMatrix * meshComp
+                    glm::mat4 global = modelMatrix * meshComp.mesh->boneMatrices[i] * IBinverse; 
+                    glm::vec3 pos = glm::vec3(global[3]);
+
+                    glm::vec3 right = glm::vec3(global[0]); // X
+                    glm::vec3 up = glm::vec3(global[1]); // Y
+                    glm::vec3 fwd = glm::vec3(global[2]); // Z
+
+                    shapeRenderer->push_states(ShapeRendering::Color4u::Red);
+                    shapeRenderer->push_line(pos, pos + axisLen * right);
+
+                    shapeRenderer->push_states(ShapeRendering::Color4u::Green);
+                    shapeRenderer->push_line(pos, pos + axisLen * up);
+
+                    shapeRenderer->push_states(ShapeRendering::Color4u::Blue);
+                    shapeRenderer->push_line(pos, pos + axisLen * fwd);
+
+                    shapeRenderer->pop_states<ShapeRendering::Color4u>();
+                    shapeRenderer->pop_states<ShapeRendering::Color4u>();
+                    shapeRenderer->pop_states<ShapeRendering::Color4u>();
+
+                }
+            }
+
         }
     }
 }
@@ -73,6 +132,15 @@ void NPCControllerSystem(entt::registry& reg, float deltaTime) {
         else {
             vel.velocity = glm::normalize(toTarget) * npc.speed;
         }
+    }
+}
+
+
+void AnimationSystem(entt::registry& reg, float deltaTime) {
+    auto view = reg.view<AnimationComponent>(); //hitta alla som har animation
+    for (auto entity : view) {
+        auto& anim = view.get<AnimationComponent>(entity);
+		anim.time += deltaTime * anim.speed; //öka tiden för animationen
     }
 }
 
@@ -165,8 +233,9 @@ bool Game::init()
         0.0f //rot
     );
     entity_registry->emplace<LinearVelocityComponent>(playerEnt);
-    entity_registry->emplace<MeshComponent>(playerEnt, horseMesh);
-    entity_registry->emplace<PlayerControllerComponent>(playerEnt, 5.0f); 
+    entity_registry->emplace<MeshComponent>(playerEnt, characterMesh);
+    entity_registry->emplace<PlayerControllerComponent>(playerEnt, 5.0f);
+	entity_registry->emplace<AnimationComponent>(playerEnt, 1, 2, 0.5f); //entity, base anim index, secondary anim index, blend factor
 
 
     auto npcEnt = entity_registry->create();
@@ -203,7 +272,8 @@ void Game::update(
     NPCControllerSystem(*entity_registry, deltaTime);
     //flytta saker
     MovementSystem(*entity_registry, deltaTime);
-
+    //animationer
+    AnimationSystem(*entity_registry, deltaTime);
 
 
     updateCamera(input);
@@ -251,6 +321,15 @@ void Game::update(
             glm_aux::to_string(ray.origin).c_str(),
             glm_aux::to_string(ray.dir).c_str());
     }
+
+
+    //toggle för sklett
+    if (input->IsKeyPressed(eeng::InputManager::Key::G))
+    {
+        Sleep(100); //snabblösning för att inte kunna klicka fler gånger, detta är inte hållbart i längden
+        this->drawSkeleton = !this->drawSkeleton;
+    }
+
 }
 
 void Game::render(
@@ -275,7 +354,7 @@ void Game::render(
 
 
     // Rendera allt som finns i ECS
-    RenderSystem(*entity_registry, forwardRenderer);
+    RenderSystem(*entity_registry, forwardRenderer, shapeRenderer, this->drawSkeleton);
 
 
 
@@ -453,7 +532,26 @@ void Game::renderUI(float time)
         ImGui::SliderFloat("Player speed", &playerCtrl.speed, 0.0f, 20.0f);
     }
 
+    //blend factor för animation
+    ImGui::Spacing();
+    ImGui::Separator();
+    auto animationEnt = entity_registry->view<AnimationComponent>(); //hittar alla entitys med AnimationComponent
+    for (auto entity : animationEnt)
+    {
+        //blend factor för animation
+        auto& animationCtrl = animationEnt.get<AnimationComponent>(entity);
+        ImGui::SliderFloat("Ani Blend-Factor", &animationCtrl.blendFactor, 0.0f, 1.0f);
 
+        //använd layering eller inte
+        ImGui::Separator();
+        ImGui::Checkbox("Use Layering", &animationCtrl.useLayering);
+
+        //speed
+		ImGui::Separator();
+        ImGui::SliderFloat("Speed", &animationCtrl.speed, 0.0f, 5.0f, "%.2f x");
+
+    }
+	
 
     ImGui::End(); // end info window
 

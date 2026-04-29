@@ -38,3 +38,15 @@ struct NPCController
     std::vector<glm::vec3> waypoints;
     int currentWaypointIndex = 0;
 };
+
+
+struct AnimationComponent
+{
+    int baseAnimationIndex = 0;
+    int secondaryAnimationIndex = 1;
+    float blendFactor = 0.0f;
+    bool useLayering = false;
+    float time = 0.0f;
+    float speed = 1.0f;
+    std::string layerRoot = "mixamorig:Spine";
+};
