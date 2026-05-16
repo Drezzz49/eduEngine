@@ -7,9 +7,10 @@
 #include "RenderableMesh.hpp"
 #include "ForwardRenderer.hpp"
 #include "ShapeRenderer.hpp"
+#include "../src/Component.hpp"
 
 /// @brief A Game may hold, update and render 3D geometry and GUI elements
-class Game : public eeng::GameBase
+class Game : public eeng::GameBase, public Observer
 {
 public:
     /// @brief For game resource initialization
@@ -37,9 +38,16 @@ public:
     /// @brief For destruction of game resources
     void destroy() override;
 
+    
+	void OnNotify(entt::entity entity, Events event) override;
+
 private:
     /// @brief For rendering of GUI elements
     void renderUI(float time);
+
+    EventQueueManager eventQueue;
+
+	std::string npcStatusText;
 
     // Renderer for rendering imported animated or non-animated models
     eeng::ForwardRendererPtr forwardRenderer;

@@ -5,144 +5,10 @@
 #include "Log.hpp"
 #include "Game.hpp"
 #include "../src/Component.hpp"
+#include "../src/System.h"
 
 
 
-void MovementSystem(entt::registry& reg, float deltaTime) {
-    auto view = reg.view<TransformComponent, LinearVelocityComponent>(); //hittar alla entitys som har transform och velocity
-    for (auto entity : view) {
-        auto& transform = view.get<TransformComponent>(entity); //hämtar transform
-        auto& vel = view.get<LinearVelocityComponent>(entity); //hämtar velocity
-        transform.pos += vel.velocity * deltaTime;
-    }
-}
-
-void PlayerControllerSystem(entt::registry& reg, InputManagerPtr input) {
-    auto view = reg.view<PlayerControllerComponent, LinearVelocityComponent>(); //hittar alla entitys som har playercontroller och velocity
-    for (auto entity : view) {
-        auto& playerCtrl = view.get<PlayerControllerComponent>(entity); //hämtar playercontroller, som bara är en fart
-        auto& vel = view.get<LinearVelocityComponent>(entity); //hämtar velocity
-
-        glm::vec3 moveDir{ 0, 0, 0 }; 
-        //inputs ijkl iställer för wasd
-        if (input->IsKeyPressed(eeng::InputManager::Key::I)) moveDir.z -= 1.0f;
-        if (input->IsKeyPressed(eeng::InputManager::Key::K)) moveDir.z += 1.0f;
-        if (input->IsKeyPressed(eeng::InputManager::Key::J)) moveDir.x -= 1.0f;
-        if (input->IsKeyPressed(eeng::InputManager::Key::L)) moveDir.x += 1.0f;
-
-        vel.velocity = moveDir * playerCtrl.speed;
-    }
-}
-
-void RenderSystem(entt::registry& reg, std::shared_ptr<eeng::ForwardRenderer> renderer, std::shared_ptr<ShapeRendering::ShapeRenderer> shapeRenderer, bool drawSkeleton) {
-
-	auto view = reg.view<TransformComponent, MeshComponent>(); //hittar alla entitys som har transform och mesh
-    for (auto entity : view) {
-		auto& transform = view.get<TransformComponent>(entity); //hämtar transform
-		auto& meshComp = view.get<MeshComponent>(entity); //hämtar mesh
-
-        if (meshComp.mesh) {
-			if (reg.all_of<AnimationComponent>(entity)) //om entityn har animation
-            {
-                auto& anim = reg.get<AnimationComponent>(entity);//hämtar animation
-                if (anim.useLayering) 
-                {
-                    eeng::AnimationBranchDesc filter; 
-					filter.root_node_name = anim.layerRoot; //namnet på benet som ska vara root för den animation 2
-					filter.mode = eeng::AnimationBranchDesc::Mode::IncludeSubtree; //alla ben under det benet i animation 2
-
-                    meshComp.mesh->animateBlend(
-                        anim.baseAnimationIndex, 
-                        anim.secondaryAnimationIndex, 
-                        anim.time, 
-                        anim.time, 
-                        filter);
-                }
-                else {
-					//standard blend utan layering
-                    meshComp.mesh->animateBlend(
-                        anim.baseAnimationIndex, 
-                        anim.secondaryAnimationIndex, 
-                        anim.time, 
-                        anim.time, 
-                        anim.blendFactor);
-                }
-            }
-
-            glm::mat4 modelMatrix = glm_aux::TRS(transform.pos, transform.rotY, { 0, 1, 0 }, transform.scale);
-            renderer->renderMesh(meshComp.mesh, modelMatrix); //ritar ut 
-
-            //gizmo sklett
-            if (drawSkeleton) {
-                float axisLen = 1.0f;
-
-				for (int i = 0; i < meshComp.mesh->boneMatrices.size(); ++i) //characterMesh blir till meshComp.mesh
-                {
-                    auto IBinverse = glm::inverse(meshComp.mesh->m_bones[i].inversebind_tfm);
-                    //characterWorldMatrix3 * characterMesh (från ) blir till modelMatrix * meshComp
-                    glm::mat4 global = modelMatrix * meshComp.mesh->boneMatrices[i] * IBinverse; 
-                    glm::vec3 pos = glm::vec3(global[3]);
-
-                    glm::vec3 right = glm::vec3(global[0]); // X
-                    glm::vec3 up = glm::vec3(global[1]); // Y
-                    glm::vec3 fwd = glm::vec3(global[2]); // Z
-
-                    shapeRenderer->push_states(ShapeRendering::Color4u::Red);
-                    shapeRenderer->push_line(pos, pos + axisLen * right);
-
-                    shapeRenderer->push_states(ShapeRendering::Color4u::Green);
-                    shapeRenderer->push_line(pos, pos + axisLen * up);
-
-                    shapeRenderer->push_states(ShapeRendering::Color4u::Blue);
-                    shapeRenderer->push_line(pos, pos + axisLen * fwd);
-
-                    shapeRenderer->pop_states<ShapeRendering::Color4u>();
-                    shapeRenderer->pop_states<ShapeRendering::Color4u>();
-                    shapeRenderer->pop_states<ShapeRendering::Color4u>();
-
-                }
-            }
-
-        }
-    }
-}
-
-void NPCControllerSystem(entt::registry& reg, float deltaTime) {
-    auto view = reg.view<NPCController, TransformComponent, LinearVelocityComponent>(); //hitta entitys med npccontroller, tarsnform och velocity
-    for (auto entity : view) {
-        auto& npc = view.get<NPCController>(entity);
-        auto& transform = view.get<TransformComponent>(entity);
-        auto& vel = view.get<LinearVelocityComponent>(entity);
-
-        if (npc.waypoints.empty()) continue; //om vi inte har några waypoints
-
-        glm::vec3 target = npc.waypoints[npc.currentWaypointIndex];
-        glm::vec3 toTarget = target - transform.pos;
-
-        if (glm::length(toTarget) < 0.5f) { // Om nära nog, byt waypoint
-            if (npc.currentWaypointIndex <= npc.waypoints.size())
-            {
-                npc.currentWaypointIndex++; //nästa
-            }
-            if (npc.currentWaypointIndex >= npc.waypoints.size())
-            {
-                npc.currentWaypointIndex = 0; //börja om
-            }
-        }
-        else {
-            vel.velocity = glm::normalize(toTarget) * npc.speed;
-        }
-    }
-}
-
-
-void AnimationSystem(entt::registry& reg, float deltaTime) {
-    auto view = reg.view<AnimationComponent>(); //hitta alla som har animation
-    for (auto entity : view) {
-        auto& anim = view.get<AnimationComponent>(entity);
-		anim.time += deltaTime * anim.speed; //öka tiden för animationen
-    }
-}
 
 
 
@@ -173,22 +39,8 @@ bool Game::init()
 
     // Character
     characterMesh = std::make_shared<eeng::RenderableMesh>();
-#if 0
-    // Character
-    characterMesh->load("assets/Ultimate Platformer Pack/Character/Character.fbx", false);
-#endif
-#if 0
-    // Enemy
-    characterMesh->load("assets/Ultimate Platformer Pack/Enemies/Bee.fbx", false);
-#endif
-#if 0
-    // ExoRed 5.0.1 PACK FBX, 60fps, No keyframe reduction
-    characterMesh->load("assets/ExoRed/exo_red.fbx");
-    characterMesh->load("assets/ExoRed/idle (2).fbx", true);
-    characterMesh->load("assets/ExoRed/walking.fbx", true);
-    // Remove root motion
-    characterMesh->removeTranslationKeys("mixamorig:Hips");
-#endif
+
+
 #if 1
     // Amy 5.0.1 PACK FBX
     characterMesh->load("assets/Amy/Ch46_nonPBR.fbx");
@@ -198,17 +50,8 @@ bool Game::init()
     // Remove root motion
     characterMesh->removeTranslationKeys("mixamorig:Hips");
 #endif
-#if 0
-    // Eve 5.0.1 PACK FBX
-    // Fix for assimp 5.0.1 (https://github.com/assimp/assimp/issues/4486)
-    // FBXConverter.cpp, line 648: 
-    //      const float zero_epsilon = 1e-6f; => const float zero_epsilon = Math::getEpsilon<float>();
-    characterMesh->load("assets/Eve/Eve By J.Gonzales.fbx");
-    characterMesh->load("assets/Eve/idle.fbx", true);
-    characterMesh->load("assets/Eve/walking.fbx", true);
-    // Remove root motion
-    characterMesh->removeTranslationKeys("mixamorig:Hips");
-#endif
+
+
 
     grassWorldMatrix = glm_aux::TRS(
         { 0.0f, 0.0f, 0.0f },
@@ -233,9 +76,9 @@ bool Game::init()
         0.0f //rot
     );
     entity_registry->emplace<LinearVelocityComponent>(playerEnt);
-    entity_registry->emplace<MeshComponent>(playerEnt, characterMesh);
+    entity_registry->emplace<MeshComponent>(playerEnt, horseMesh);
     entity_registry->emplace<PlayerControllerComponent>(playerEnt, 5.0f);
-	entity_registry->emplace<AnimationComponent>(playerEnt, 1, 2, 0.5f); //entity, base anim index, secondary anim index, blend factor
+	entity_registry->emplace<AnimationComponent>(playerEnt, 1, 2, 0.5f, false, 0.0f, 1.0f);
 
 
     auto npcEnt = entity_registry->create();
@@ -257,6 +100,12 @@ bool Game::init()
 
     entity_registry->emplace<NPCController>(npcEnt, horseBrain);
 
+    //skapar en source som npc kan skicka events till
+	Source npcSource; 
+	npcSource.AddObserver(this);
+	entity_registry->emplace<Source>(npcEnt, npcSource);
+
+
     return true;
 }
 
@@ -265,15 +114,17 @@ void Game::update(
     float deltaTime,
     InputManagerPtr input)
 {
+	//tömmer event queuen varje frame
+	eventQueue.Flush(*entity_registry, npcStatusText);
 
     //hantera input spelaren
-    PlayerControllerSystem(*entity_registry, input);
+    System::PlayerController(*entity_registry, input);
     //hantera npc
-    NPCControllerSystem(*entity_registry, deltaTime);
+    System::NPCController(*entity_registry, deltaTime, 0.5f); //la till TargetTolerance
     //flytta saker
-    MovementSystem(*entity_registry, deltaTime);
+    System::Movement(*entity_registry, deltaTime);
     //animationer
-    AnimationSystem(*entity_registry, deltaTime);
+    System::Animation(*entity_registry, deltaTime);
 
 
     updateCamera(input);
@@ -354,7 +205,7 @@ void Game::render(
 
 
     // Rendera allt som finns i ECS
-    RenderSystem(*entity_registry, forwardRenderer, shapeRenderer, this->drawSkeleton);
+    System::Render(*entity_registry, forwardRenderer, shapeRenderer, this->drawSkeleton);
 
 
 
@@ -551,8 +402,18 @@ void Game::renderUI(float time)
         ImGui::SliderFloat("Speed", &animationCtrl.speed, 0.0f, 5.0f, "%.2f x");
 
     }
-	
 
+
+    ImGui::Separator();
+    ImGui::Text(npcStatusText.c_str());
+	//event queue trigger när man klickar på kanppen
+    if (ImGui::Button("Reset Visual Status Log"))
+    {
+        //skicka att eventet att klicka har hänt
+        eventQueue.Enqueue(entt::null, Events::GUI_BUTTON_CLICKED);
+    }
+
+	
     ImGui::End(); // end info window
 
     // In-world position label at horse position
@@ -641,4 +502,14 @@ void Game::updatePlayer(
     camera.lookAt += movement;
     camera.pos += movement;
 
+}
+
+int npcWaypointCounter = 0;
+//när en entity med source komponentns event triggas så körs detta
+void Game::OnNotify(entt::entity entity, Events event) {
+    if (event == Events::NPC_REACHED_WAYPOINT)
+    {
+		npcWaypointCounter++;
+		npcStatusText = "NPC reached waypoint " + std::to_string(npcWaypointCounter);
+    }
 }
