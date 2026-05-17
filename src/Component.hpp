@@ -54,13 +54,36 @@ struct AnimationComponent
 };
 
 
+struct SphereColliderComponent
+{
+    float radius = 1.0f;
+    glm::vec3 center{ 0.0f, 0.0f, 0.0f };
+    bool isTrigger = false;
+};
+
+struct AABBColliderComponent
+{
+    glm::vec3 min{ -0.5f, -0.5f, -0.5f };
+    glm::vec3 max{ 0.5f,  0.5f,  0.5f };
+	bool isTrigger = false;
+};
+
+struct nameComponent
+{
+    std::string name = "";
+};
+
+
+
+
 
 
 //alla events 
 enum class Events : std::uint8_t
 {
     NPC_REACHED_WAYPOINT,
-    GUI_BUTTON_CLICKED
+    GUI_BUTTON_CLICKED,
+    TRIGGER_ENTERED
 };
 
 

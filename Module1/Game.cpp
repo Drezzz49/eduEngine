@@ -66,30 +66,37 @@ bool Game::init()
 
 
 
-
-
-    auto playerEnt = entity_registry->create();
+	playerEntity = entity_registry->create();
     entity_registry->emplace<TransformComponent>(
-        playerEnt,
+        playerEntity,
         glm::vec3{ 0.0f, 0.0f, 0.0f }, //pos
-        glm::vec3{ 0.01f, 0.01f, 0.01f }, //skala
+        glm::vec3{ 0.03f, 0.03f, 0.03f }, //skala
         0.0f //rot
     );
-    entity_registry->emplace<LinearVelocityComponent>(playerEnt);
-    entity_registry->emplace<MeshComponent>(playerEnt, horseMesh);
-    entity_registry->emplace<PlayerControllerComponent>(playerEnt, 5.0f);
-	entity_registry->emplace<AnimationComponent>(playerEnt, 1, 2, 0.5f, false, 0.0f, 1.0f);
+    entity_registry->emplace<LinearVelocityComponent>(playerEntity);
+    entity_registry->emplace<MeshComponent>(playerEntity, characterMesh);
+    entity_registry->emplace<PlayerControllerComponent>(playerEntity, 5.0f);
+	entity_registry->emplace<AnimationComponent>(playerEntity, 1, 2, 0.5f, false, 0.0f, 1.0f);
+
+    //colliders
+    entity_registry->emplace<SphereColliderComponent>(playerEntity, 1.0f, glm::vec3{ 0.0f, 1.0f, 0.0f });
+    entity_registry->emplace<AABBColliderComponent>(playerEntity, glm::vec3{ -1.0f, 0.0f, -1.0f }, glm::vec3{ 1.0f, 2.0f, 1.0f });
 
 
-    auto npcEnt = entity_registry->create();
+
+    horseWaypointNpcEntity = entity_registry->create();
     entity_registry->emplace<TransformComponent>(
-        npcEnt,
+        horseWaypointNpcEntity,
         glm::vec3{ 0.0f, 0.0f, 0.0f }, //pos
         glm::vec3{ 0.01f, 0.005f, 0.01f }, //skala
         0.0f //rot
     );
-    entity_registry->emplace<LinearVelocityComponent>(npcEnt);
-    entity_registry->emplace<MeshComponent>(npcEnt, horseMesh);
+    entity_registry->emplace<LinearVelocityComponent>(horseWaypointNpcEntity);
+    entity_registry->emplace<MeshComponent>(horseWaypointNpcEntity, horseMesh);
+
+    //colliders
+    entity_registry->emplace<SphereColliderComponent>(horseWaypointNpcEntity, 1.0f, glm::vec3{ 0.0f, 1.0f, 0.0f });
+    entity_registry->emplace<AABBColliderComponent>(horseWaypointNpcEntity, glm::vec3{ -1.0f, 0.0f, -1.0f }, glm::vec3{ 1.0f, 2.0f, 1.0f });
 
     NPCController horseBrain;
     horseBrain.speed = 10.0f;
@@ -98,12 +105,47 @@ bool Game::init()
     horseBrain.waypoints.push_back(glm::vec3(10.0f, 0.0f, 10.0f));
     horseBrain.waypoints.push_back(glm::vec3(0.0f, 0.0f, 10.0f));
 
-    entity_registry->emplace<NPCController>(npcEnt, horseBrain);
+    entity_registry->emplace<NPCController>(horseWaypointNpcEntity, horseBrain);
 
     //skapar en source som npc kan skicka events till
 	Source npcSource; 
 	npcSource.AddObserver(this);
-	entity_registry->emplace<Source>(npcEnt, npcSource);
+	entity_registry->emplace<Source>(horseWaypointNpcEntity, npcSource);
+
+
+
+
+    //häst 2
+    horseEntity = entity_registry->create();
+    entity_registry->emplace<TransformComponent>(
+        horseEntity,
+        glm::vec3{ -10.0f, 0.0f, -3.0f }, //pos
+        glm::vec3{ 0.01f, 0.01f, 0.01f }, //skala
+        0.0f //rot
+    );
+    entity_registry->emplace<MeshComponent>(horseEntity, horseMesh);
+	entity_registry->emplace<SphereColliderComponent>(horseEntity, 1.0f, glm::vec3{ 0.0f, 1.0f, 0.0f }, true); //isTrigger
+    entity_registry->emplace<AABBColliderComponent>(horseEntity, glm::vec3{ -1.0f, 0.0f, -1.0f }, glm::vec3{ 1.0f, 2.0f, 1.0f }, true);
+    Source horseSourrce;
+    horseSourrce.AddObserver(this);
+    entity_registry->emplace<Source>(horseEntity, horseSourrce);
+    entity_registry->emplace<AnimationComponent>(horseEntity, 0, 0, 0.5f, false, 0.0f, 1.0f);
+	entity_registry->emplace<nameComponent>(horseEntity, "Horse2");
+
+
+    //food
+    foodEntity = entity_registry->create();
+    entity_registry->emplace<TransformComponent>(
+        foodEntity,
+        glm::vec3{ -5.0f, 0.0f, -3.0f }, //pos
+        glm::vec3{ 0.01f, 0.01f, 0.01f }, //skala
+        0.0f //rot
+    );
+    entity_registry->emplace<SphereColliderComponent>(foodEntity, 1.0f, glm::vec3{ 0.0f, 1.0f, 0.0f }, true); //isTrigger
+    entity_registry->emplace<AABBColliderComponent>(foodEntity, glm::vec3{ -1.0f, 0.0f, -1.0f }, glm::vec3{ 1.0f, 2.0f, 1.0f }, true);
+    Source foodSourrce;
+    foodSourrce.AddObserver(this);
+    entity_registry->emplace<Source>(foodEntity, foodSourrce);
 
 
     return true;
@@ -114,8 +156,14 @@ void Game::update(
     float deltaTime,
     InputManagerPtr input)
 {
+
+	playerInFoodTrigger = false;
+	playerInHorseTrigger = false;
 	//tömmer event queuen varje frame
 	eventQueue.Flush(*entity_registry, npcStatusText);
+
+	//kollisionssystemet
+    System::CollisionSystem(*entity_registry, *shapeRenderer);
 
     //hantera input spelaren
     System::PlayerController(*entity_registry, input);
@@ -174,10 +222,91 @@ void Game::update(
     }
 
 
+    //häst mat quest
+    if (input->IsKeyPressed(eeng::InputManager::Key::E))
+    {
+        Sleep(150); //snabblösning för att inte kunna klicka fler gånger, detta är inte hållbart i längden
+        if (!playerInFoodTrigger && !hasFood)
+        {
+            questStatusText = "No food here, search somewhere else";
+        }
+        else if (playerInFoodTrigger && !hasFood)
+        {
+            hasFood = true;
+			questStatusText = "You picked up the food! Now find the horse and feed it.";
+        }
+        else if (playerInHorseTrigger && !hasFood)
+        {
+            questStatusText = "you can't feed the horse with just air, find some food";
+        }
+        else if (playerInHorseTrigger && hasFood)
+        {
+            questStatusText = "you fed the horse, yummy!";
+			hasFood = false;
+            
+            //animation
+            auto playerView = entity_registry->view<AnimationComponent, PlayerControllerComponent>();
+            for (auto entity : playerView)
+            {
+                auto& anim = playerView.get<AnimationComponent>(entity);
+                anim.useLayering = true;
+				//animation 3 är vinka
+                anim.secondaryAnimClipIndex = 3;
+                // reset time
+                anim.time = 0.0f;
+            }
+        }
+    }
+    //animationen efter man matat 
+    auto playerView = entity_registry->view<AnimationComponent, PlayerControllerComponent>();
+    for (auto entity : playerView)
+    {
+        auto& playerAnim = playerView.get<AnimationComponent>(entity);
+
+        //om det har gått mer än 3s och vi vinkar
+        if (playerAnim.time > 3.0f && playerAnim.secondaryAnimClipIndex == 3)
+        {
+			//återställ spelarens animation
+            playerAnim.useLayering = false;
+            playerAnim.secondaryAnimClipIndex = 2;
+
+            //leta upp hästen och ge den en animation
+            auto npcView = entity_registry->view<AnimationComponent, nameComponent>();
+            for (auto npcEntity : npcView)
+            {
+                auto& nameComp = npcView.get<nameComponent>(npcEntity);
+
+                if (nameComp.name == "Horse2")
+                {
+					//ändrar hästens animation
+                    auto& horseAnim = npcView.get<AnimationComponent>(npcEntity);
+                    horseAnim.primaryAnimClipIndex = 2;
+                    horseAnim.time = 0.0f;
+                }
+            }
+        }
+    }
+    //ta bort hästens animation
+    auto npcView = entity_registry->view<AnimationComponent, nameComponent>();
+    for (auto npcEntity : npcView)
+    {
+        auto& nameComp = npcView.get<nameComponent>(npcEntity);
+        auto& horseAnim = npcView.get<AnimationComponent>(npcEntity);
+
+		//kolla efter rätt häst, att den kör rätt animation och att den har kört den i 3s
+        if (nameComp.name == "Horse2" && horseAnim.primaryAnimClipIndex == 2 && horseAnim.time > 3.0f)
+        {
+            horseAnim.primaryAnimClipIndex = 1;
+            horseAnim.time = 0.0f;
+        }
+    }
+
+
+
     //toggle för sklett
     if (input->IsKeyPressed(eeng::InputManager::Key::G))
     {
-        Sleep(100); //snabblösning för att inte kunna klicka fler gånger, detta är inte hållbart i längden
+        Sleep(150); //snabblösning för att inte kunna klicka fler gånger, detta är inte hållbart i längden
         this->drawSkeleton = !this->drawSkeleton;
     }
 
@@ -413,6 +542,15 @@ void Game::renderUI(float time)
         eventQueue.Enqueue(entt::null, Events::GUI_BUTTON_CLICKED);
     }
 
+
+    ImGui::Separator();
+    ImGui::Text("player is in food trigger: %s ", playerInFoodTrigger ? "true" : "false");
+    ImGui::Text("player is in horse trigger: %s ", playerInHorseTrigger ? "true" : "false");
+    ImGui::Text("player has food: %s ", hasFood ? "true" : "false");
+    
+    ImGui::Separator();
+    ImGui::Text(questStatusText.c_str());
+
 	
     ImGui::End(); // end info window
 
@@ -511,5 +649,17 @@ void Game::OnNotify(entt::entity entity, Events event) {
     {
 		npcWaypointCounter++;
 		npcStatusText = "NPC reached waypoint " + std::to_string(npcWaypointCounter);
+    }
+    if (event == Events::TRIGGER_ENTERED)
+    {
+   
+        if (entity == foodEntity)
+        {
+            playerInFoodTrigger = true;
+        }
+        else if (entity == horseEntity)
+        {
+            playerInHorseTrigger = true;
+        }
     }
 }

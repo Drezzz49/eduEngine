@@ -45,9 +45,19 @@ private:
     /// @brief For rendering of GUI elements
     void renderUI(float time);
 
+    bool playerInFoodTrigger = false;
+    bool playerInHorseTrigger = false;
+    bool hasFood = false;
+
+    entt::entity playerEntity = entt::null;
+    entt::entity foodEntity = entt::null;
+    entt::entity horseEntity = entt::null;
+    entt::entity horseWaypointNpcEntity = entt::null;
+
     EventQueueManager eventQueue;
 
 	std::string npcStatusText;
+    std::string questStatusText = "find food to feed the horse";
 
     // Renderer for rendering imported animated or non-animated models
     eeng::ForwardRendererPtr forwardRenderer;
